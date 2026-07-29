@@ -1,0 +1,46 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.env
+backend/.env
+venv/
+.venv/
+backend/venv/
+*.egg-info/
+dist/
+build/
+backend/stdout.log
+backend/stderr.log
+
+# Node
+node_modules/
+frontend/node_modules/
+.vite/
+dist/
+frontend/dist/
+
+# IDE & Agents
+.vscode/
+.idea/
+.mimocode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Database
+*.db
+*.db-*
+*.sqlite3
+backend/crm_local.db*
+
+# Logs
+*.log
+
+# Alembic
+alembic/versions/*.py
+!alembic/versions/.gitkeep

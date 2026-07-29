@@ -1,0 +1,116 @@
+from datetime import timedelta
+from typing import Any
+from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.security import OAuth2PasswordRequestForm
+from sqlalchemy.orm import Session
+from jose import jwt, JWTError
+
+from app.core.database import get_db
+from app.core.config import settings
+from app.core.security import (
+    create_access_token,
+    create_refresh_token,
+    get_password_hash,
+    verify_password,
+    ALGORITHM,
+)
+from app.core.deps import get_current_user
+from app.models.user import User
+from app.schemas.user import UserCreate, UserResponse, Token, TokenPayload
+
+router = APIRouter(prefix="/auth", tags=["auth"])
+
+@router.post("/register", response_model=UserResponse)
+def register(user_in: UserCreate, db: Session = Depends(get_db)) -> Any:
+    user = db.query(User).filter(User.email == user_in.email).first()
+    if user:
+        raise HTTPException(
+            status_code=400,
+            detail="A user with this email already exists in the system.",
+        )
+    # Public self-registration is intentionally limited to Executive.
+    # Higher-privilege accounts should be provisioned by an Admin.
+    if user_in.role != "Executive":
+        raise HTTPException(
+            status_code=403,
+            detail="Public registration can only create Executive accounts."
+        )
+    
+    hashed_password = get_password_hash(user_in.password)
+    db_user = User(
+        email=user_in.email,
+        hashed_password=hashed_password,
+        full_name=user_in.full_name,
+        role=user_in.role,
+        is_active=user_in.is_active,
+    )
+    db.add(db_user)
+    db.commit()
+    db.refresh(db_user)
+    return db_user
+
+@router.post("/login", response_model=Token)
+def login(
+    form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)
+) -> Any:
+    user = db.query(User).filter(User.email == form_data.username).first()
+    if not user or not verify_password(form_data.password, user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Incorrect email or password",
+        )
+    elif not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Inactive user"
+        )
+    
+    access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    return {
+        "access_token": create_access_token(user.email, expires_delta=access_token_expires),
+        "refresh_token": create_refresh_token(user.email),
+        "token_type": "bearer",
+    }
+
+@router.post("/refresh", response_model=Token)
+def refresh_token(refresh_token: str, db: Session = Depends(get_db)) -> Any:
+    try:
+        payload = jwt.decode(
+            refresh_token, settings.SECRET_KEY, algorithms=[ALGORITHM]
+        )
+        token_data = TokenPayload(**payload)
+        if token_data.type != "refresh":
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid token type",
+            )
+    except (JWTError, Exception):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Could not validate credentials",
+        )
+    
+    user = db.query(User).filter(User.email == token_data.sub).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    if not user.is_active:
+        raise HTTPException(status_code=400, detail="Inactive user")
+        
+    access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    return {
+        "access_token": create_access_token(user.email, expires_delta=access_token_expires),
+        "refresh_token": create_refresh_token(user.email),
+        "token_type": "bearer",
+    }
+
+@router.post("/forgot-password")
+def forgot_password(email: str, db: Session = Depends(get_db)) -> Any:
+    # In a full app, this would send an email with reset link.
+    # For dev, we will search for the user and if found, return a success mock.
+    user = db.query(User).filter(User.email == email).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Email not found")
+    return {"message": f"Password reset instructions sent to {email} (Mocked)"}
+
+@router.get("/me", response_model=UserResponse)
+def get_me(current_user: User = Depends(get_current_user)) -> Any:
+    return current_user
