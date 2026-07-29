@@ -28,6 +28,9 @@ services:
     staticPublishPath: dist
     routes:
       - type: rewrite
+        source: /api/*
+        destination: https://crm-backend.onrender.com/api/*
+      - type: rewrite
         source: /*
         destination: /index.html
     envVars:
@@ -35,7 +38,7 @@ services:
         fromService:
           type: web
           name: crm-backend
-          property: url
+          property: host
 
 databases:
   # Managed PostgreSQL Database
