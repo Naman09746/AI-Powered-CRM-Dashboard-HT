@@ -52,9 +52,9 @@ def seed_db(db: Session):
     manager_pw = get_password_hash("Manager123!")
     exec_pw = get_password_hash("Exec123!")
     
-    admin = User(email="admin@crm.com", hashed_password=admin_pw, full_name="Alice Admin", role="Admin")
-    manager = User(email="manager@crm.com", hashed_password=manager_pw, full_name="Bob Manager", role="Manager")
-    exec1 = User(email="exec@crm.com", hashed_password=exec_pw, full_name="Charlie Executive", role="Executive")
+    admin = User(email="admin@crm.com", hashed_password=admin_pw, full_name="Rohit Admin", role="Admin")
+    manager = User(email="manager@crm.com", hashed_password=manager_pw, full_name="Priya Manager", role="Manager")
+    exec1 = User(email="exec@crm.com", hashed_password=exec_pw, full_name="Rahul Executive", role="Executive")
     
     db.add_all([admin, manager, exec1])
     db.commit()

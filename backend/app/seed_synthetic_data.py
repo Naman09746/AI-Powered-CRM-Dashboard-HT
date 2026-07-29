@@ -162,9 +162,9 @@ def _read_prospect_rows() -> list[dict]:
 
 def _ensure_users(db: Session) -> list[User]:
     users = [
-        ("admin@crm.com", "Admin123!", "Alice Admin", "Admin"),
-        ("manager@crm.com", "Manager123!", "Bob Manager", "Manager"),
-        ("exec@crm.com", "Exec123!", "Charlie Executive", "Executive"),
+        ("admin@crm.com", "Admin123!", "Rohit Admin", "Admin"),
+        ("manager@crm.com", "Manager123!", "Priya Manager", "Manager"),
+        ("exec@crm.com", "Exec123!", "Rahul Executive", "Executive"),
     ]
     created: list[User] = []
     for email, password, full_name, role in users:
