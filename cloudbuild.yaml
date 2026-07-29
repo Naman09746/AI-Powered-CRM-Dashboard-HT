@@ -1,0 +1,52 @@
+steps:
+  # 1. Build Backend Container Image
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-t', 'gcr.io/$PROJECT_ID/crm-backend:$COMMIT_SHA', './backend']
+
+  # 2. Build Frontend Production Container Image
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-f'
+      - './frontend/Dockerfile.prod'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/crm-frontend:$COMMIT_SHA'
+      - './frontend'
+
+  # 3. Push Backend Image to Artifact Registry / GCR
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'gcr.io/$PROJECT_ID/crm-backend:$COMMIT_SHA']
+
+  # 4. Push Frontend Image to Artifact Registry / GCR
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'gcr.io/$PROJECT_ID/crm-frontend:$COMMIT_SHA']
+
+  # 5. Deploy Backend Service to Google Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - 'crm-backend'
+      - '--image=gcr.io/$PROJECT_ID/crm-backend:$COMMIT_SHA'
+      - '--region=us-central1'
+      - '--platform=managed'
+      - '--allow-unauthenticated'
+      - '--port=8000'
+
+  # 6. Deploy Frontend Service to Google Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - 'crm-frontend'
+      - '--image=gcr.io/$PROJECT_ID/crm-frontend:$COMMIT_SHA'
+      - '--region=us-central1'
+      - '--platform=managed'
+      - '--allow-unauthenticated'
+      - '--port=8080'
+
+images:
+  - 'gcr.io/$PROJECT_ID/crm-backend:$COMMIT_SHA'
+  - 'gcr.io/$PROJECT_ID/crm-frontend:$COMMIT_SHA'
