@@ -41,6 +41,8 @@ backend/crm_local.db*
 # Logs
 *.log
 
-# Alembic
-alembic/versions/*.py
-!alembic/versions/.gitkeep
+# Alembic (keep initial migration)
+backend/alembic/versions/*.py
+!backend/alembic/versions/.gitkeep
+!backend/alembic/versions/*_initial.py
+!backend/alembic/versions/*_*.py

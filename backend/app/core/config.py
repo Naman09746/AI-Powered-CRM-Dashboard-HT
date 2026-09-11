@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     GEMINI_API_KEY: Optional[str] = None
     GEMINI_MODEL: str = "gemini-2.0-flash"
     REDIS_URL: Optional[str] = "redis://localhost:6379/0"
+    ML_EAGER_TRAIN: bool = False
 
     # Email Service Settings
     GMAIL_ADDRESS: Optional[str] = None

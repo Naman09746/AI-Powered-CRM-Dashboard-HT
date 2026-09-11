@@ -238,46 +238,29 @@ def seed_outreach_demo(db: Session):
     db.commit()
     print("Outreach demo prospects seeded successfully.")
 
-def check_and_fix_outreach_tables(db: Session):
-    try:
-        db.query(Prospect).first()
-    except Exception as e:
-        db.rollback()
-        print(f"Repairing outreach tables due to schema update: {e}")
-        try:
-            OutreachSendLog.__table__.drop(bind=engine, checkfirst=True)
-            OutreachFollowUp.__table__.drop(bind=engine, checkfirst=True)
-            OutreachResult.__table__.drop(bind=engine, checkfirst=True)
-            Prospect.__table__.drop(bind=engine, checkfirst=True)
-        except Exception:
-            pass
-        Base.metadata.create_all(bind=engine)
-
 @app.on_event("startup")
 def startup_event():
-    # Automatically create tables in SQLite/PostgreSQL
+    # Create tables if they don't exist (alembic is preferred for prod via entrypoint.sh)
+    # This fallback ensures local SQLite without alembic still works
     Base.metadata.create_all(bind=engine)
     db = SessionLocal()
     try:
-        check_and_fix_outreach_tables(db)
         from app.seed_synthetic_data import seed_synthetic_crm_data
+        # Idempotent seeding — seed_synthetic_crm_data checks counts internally
+        # Set RESET_DEMO_DATA=1 to force reseed
         seed_synthetic_crm_data(db)
-        # Train ML model and score initial leads
-        from app.core.ml import scoring_model
-        from app.models.crm import Lead
-        scoring_model.train()
-        leads = db.query(Lead).all()
-        for lead in leads:
-            lead_dict = {
-                "source": lead.source,
-                "industry": lead.industry,
-                "country": lead.country,
-                "employee_count": lead.employee_count
-            }
-            lead.lead_score = scoring_model.predict_score(lead_dict)
-            db.add(lead)
-        db.commit()
-        print("Initial ML Lead Scores calculated successfully.")
+
+        # ML model is now lazy-loaded on first predict_score() call to avoid 5-10s cold start.
+        # Eager training can be enabled for demos via ML_EAGER_TRAIN=1
+        if settings.ML_EAGER_TRAIN:
+            from app.core.ml import scoring_model
+            if not scoring_model.is_trained:
+                scoring_model.train()
+                print("ML model eager-trained on startup (ML_EAGER_TRAIN=1).")
+    except Exception as exc:
+        # Never drop tables on startup failure — log and continue
+        print(f"Startup seeding warning (non-fatal): {exc}")
+        db.rollback()
     finally:
         db.close()
 

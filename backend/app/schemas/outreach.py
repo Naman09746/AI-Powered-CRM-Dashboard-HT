@@ -161,6 +161,29 @@ class ProcessBatchResponse(BaseModel):
     errors: List[str] = []
 
 
+class OutreachJobResponse(BaseModel):
+    id: int
+    status: str
+    total: int
+    processed: int
+    failed: int
+    skipped: int
+    result_ids: Optional[List[int]] = None
+    errors: Optional[List[str]] = None
+    created_by: Optional[int] = None
+    created_at: Optional[datetime] = None
+    started_at: Optional[datetime] = None
+    finished_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class OutreachJobListResponse(BaseModel):
+    items: List[OutreachJobResponse]
+    total: int
+
+
 class EmailPreviewResponse(BaseModel):
     result_id: int
     prospect_id: int

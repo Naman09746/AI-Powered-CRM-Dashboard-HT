@@ -3,7 +3,7 @@ import io
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import StreamingResponse
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session, joinedload
@@ -21,6 +21,7 @@ from app.models.crm import (
     OutreachResult,
     OutreachSendLog,
     Prospect,
+    OutreachJob,
 )
 from app.models.user import User
 from app.schemas.outreach import (
@@ -30,6 +31,8 @@ from app.schemas.outreach import (
     EmailSendRequest,
     EmailSendResponse,
     OutreachFollowUpResponse,
+    OutreachJobListResponse,
+    OutreachJobResponse,
     OutreachResultResponse,
     OutreachSendLogResponse,
     OutreachStatsResponse,
@@ -433,39 +436,107 @@ def process_single_prospect(
 @router.post("/process-batch", response_model=ProcessBatchResponse)
 def process_batch(
     request: ProcessBatchRequest,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    sync: bool = Query(False, description="Run synchronously (for tests). Default async 202 with job."),
 ) -> Any:
+    # Sync mode retains original behavior for tests/CI
+    if sync:
+        query = _scope_prospects(db.query(Prospect), current_user)
+        if request.prospect_ids:
+            query = query.filter(Prospect.id.in_(request.prospect_ids))
+        if not request.force:
+            query = query.filter(Prospect.processing_status != "Processed")
+
+        prospects = query.order_by(Prospect.created_at.desc()).limit(request.limit).all()
+        processed = failed = skipped = 0
+        result_ids = []
+        errors = []
+
+        for prospect in prospects:
+            try:
+                result_data = process_prospect(prospect)
+                result = _save_result(db, prospect, result_data)
+                db.commit()
+                db.refresh(result)
+                result_ids.append(result.id)
+                processed += 1
+            except Exception as exc:
+                db.rollback()
+                failed += 1
+                errors.append(f"{prospect.company_name}: {str(exc)}")
+
+        if request.prospect_ids:
+            skipped = max(0, len(request.prospect_ids) - processed - failed)
+
+        _audit(db, current_user.id, "Prospect Batch Process", "POST /outreach/process-batch?sync=true", f"Processed {processed}, failed {failed}, skipped {skipped}")
+        db.commit()
+        return {"processed": processed, "failed": failed, "skipped": skipped, "result_ids": result_ids, "errors": errors}
+
+    # Async mode — create job and return 202 immediately
     query = _scope_prospects(db.query(Prospect), current_user)
     if request.prospect_ids:
         query = query.filter(Prospect.id.in_(request.prospect_ids))
     if not request.force:
         query = query.filter(Prospect.processing_status != "Processed")
-
     prospects = query.order_by(Prospect.created_at.desc()).limit(request.limit).all()
-    processed = failed = skipped = 0
-    result_ids = []
-    errors = []
 
-    for prospect in prospects:
-        try:
-            result_data = process_prospect(prospect)
-            result = _save_result(db, prospect, result_data)
-            db.commit()
-            db.refresh(result)
-            result_ids.append(result.id)
-            processed += 1
-        except Exception as exc:
-            db.rollback()
-            failed += 1
-            errors.append(f"{prospect.company_name}: {str(exc)}")
+    if not prospects:
+        return {"processed": 0, "failed": 0, "skipped": len(request.prospect_ids or []), "result_ids": [], "errors": []}
 
-    if request.prospect_ids:
-        skipped = max(0, len(request.prospect_ids) - processed - failed)
-
-    _audit(db, current_user.id, "Prospect Batch Process", "POST /outreach/process-batch", f"Processed {processed}, failed {failed}, skipped {skipped}")
+    job = OutreachJob(
+        status="queued",
+        total=len(prospects),
+        processed=0,
+        failed=0,
+        skipped=0,
+        result_ids=[],
+        errors={"prospect_ids": [p.id for p in prospects]} if request.prospect_ids else [],
+        created_by=current_user.id,
+    )
+    db.add(job)
     db.commit()
-    return {"processed": processed, "failed": failed, "skipped": skipped, "result_ids": result_ids, "errors": errors}
+    db.refresh(job)
+
+    # Enqueue background task
+    from app.services.outreach_job_service import run_outreach_job
+
+    background_tasks.add_task(run_outreach_job, job.id)
+
+    _audit(db, current_user.id, "Prospect Batch Async", "POST /outreach/process-batch", f"Queued job {job.id} for {len(prospects)} prospects")
+    db.commit()
+    # Return 202-style payload but keep ProcessBatchResponse for compat; include job hint in errors
+    return {"processed": 0, "failed": 0, "skipped": 0, "result_ids": [job.id], "errors": [f"Async job {job.id} queued for {len(prospects)} prospects"]}
+
+
+@router.get("/jobs", response_model=OutreachJobListResponse)
+def list_jobs(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    page: int = Query(1, ge=1),
+    size: int = Query(25, ge=1, le=100),
+) -> Any:
+    query = db.query(OutreachJob)
+    if current_user.role == "Executive":
+        query = query.filter(OutreachJob.created_by == current_user.id)
+    total = query.count()
+    items = query.order_by(OutreachJob.created_at.desc()).offset((page - 1) * size).limit(size).all()
+    return {"items": items, "total": total}
+
+
+@router.get("/jobs/{job_id}", response_model=OutreachJobResponse)
+def get_job(
+    job_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Any:
+    job = db.query(OutreachJob).filter(OutreachJob.id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if current_user.role == "Executive" and job.created_by != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized to access this job")
+    return job
 
 
 @router.get("/results", response_model=list[OutreachResultResponse])

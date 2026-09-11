@@ -267,3 +267,22 @@ class OutreachSendLog(Base):
     prospect = relationship("Prospect", back_populates="send_logs")
     user = relationship("User")
 
+
+class OutreachJob(Base):
+    __tablename__ = "outreach_jobs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    status = Column(String, nullable=False, default="queued")  # queued, running, completed, failed
+    total = Column(Integer, nullable=False, default=0)
+    processed = Column(Integer, nullable=False, default=0)
+    failed = Column(Integer, nullable=False, default=0)
+    skipped = Column(Integer, nullable=False, default=0)
+    result_ids = Column(JSON, nullable=True)
+    errors = Column(JSON, nullable=True)
+    created_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    started_at = Column(DateTime, nullable=True)
+    finished_at = Column(DateTime, nullable=True)
+
+    creator = relationship("User")
+

@@ -22,13 +22,31 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r backend/requirements.txt
         
+    - name: Run migrations (SQLite)
+      env:
+        DATABASE_URL: "sqlite:///:memory:"
+        SECRET_KEY: "ci-secret-key-for-testing"
+      run: |
+        cd backend
+        alembic upgrade head
+
+    - name: Lint with ruff
+      run: |
+        pip install ruff
+        ruff check backend/app --line-length 100 || true
+
+    - name: Type check with mypy
+      run: |
+        pip install mypy
+        mypy backend/app --ignore-missing-imports --no-error-summary || true
+
     - name: Run backend tests
       env:
         DATABASE_URL: "sqlite:///:memory:"
         SECRET_KEY: "ci-secret-key-for-testing"
       run: |
         cd backend
-        pytest tests -v
+        pytest tests -v --tb=short
 
 
   frontend-build:
@@ -46,6 +64,11 @@ jobs:
         cd frontend
         npm ci
         
+    - name: Lint frontend
+      run: |
+        cd frontend
+        npm run lint || true
+
     - name: Build client production bundles
       run: |
         cd frontend

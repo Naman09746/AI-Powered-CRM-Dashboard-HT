@@ -79,6 +79,19 @@ interface EmailPreview {
   follow_ups: { id: number; day: number; message: string; status: string }[];
 }
 
+interface OutreachJob {
+  id: number;
+  status: string;
+  total: number;
+  processed: number;
+  failed: number;
+  skipped: number;
+  result_ids?: number[] | null;
+  errors?: string[] | { prospect_ids?: number[] } | null;
+  created_at?: string | null;
+  finished_at?: string | null;
+}
+
 interface ProspectForm {
   company_name: string;
   contact_name: string;
@@ -416,6 +429,7 @@ export default function Outreach() {
   const [modalOpen, setModalOpen] = useState(false);
   const [preview, setPreview] = useState<EmailPreview | null>(null);
   const [form, setForm] = useState<ProspectForm>(emptyForm);
+  const [activeJob, setActiveJob] = useState<OutreachJob | null>(null);
 
   const authHeaders = { Authorization: `Bearer ${token}` };
 
@@ -475,6 +489,25 @@ export default function Outreach() {
   useEffect(() => {
     fetchProspects();
   }, [page, temperature, status, token]);
+
+  // Poll active job progress (async batch) — uses BackgroundTasks + OutreachJob
+  useEffect(() => {
+    if (!activeJob || activeJob.status === 'completed' || activeJob.status === 'failed') return;
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/v1/outreach/jobs/${activeJob.id}`, { headers: authHeaders });
+        if (!res.ok) return;
+        const updated: OutreachJob = await res.json();
+        setActiveJob(updated);
+        if (updated.status === 'completed' || updated.status === 'failed') {
+          clearInterval(interval);
+          fetchProspects();
+          fetchStats();
+        }
+      } catch (_) {}
+    }, 1500);
+    return () => clearInterval(interval);
+  }, [activeJob?.id, activeJob?.status]);
 
   const handleSearchSubmit = (event: React.FormEvent) => {
     event.preventDefault();
@@ -651,8 +684,23 @@ export default function Outreach() {
         throw new Error(error.detail || 'Batch process failed');
       }
       const result = await response.json();
-      alert(`Processed ${result.processed}; failed ${result.failed}; skipped ${result.skipped}.`);
-      fetchProspects();
+      // Async mode returns job hint in result_ids/errors — detect job id
+      const isAsync = result.errors?.[0]?.includes('Async job');
+      if (isAsync && result.result_ids?.[0]) {
+        const jobId = result.result_ids[0];
+        // Fetch initial job state
+        const jobRes = await fetch(`/api/v1/outreach/jobs/${jobId}`, { headers: authHeaders });
+        if (jobRes.ok) {
+          const job: OutreachJob = await jobRes.json();
+          setActiveJob(job);
+        } else {
+          setActiveJob({ id: jobId, status: 'queued', total: 25, processed: 0, failed: 0, skipped: 0 });
+        }
+        // Don't alert yet — poller will refresh when completed
+      } else {
+        alert(`Processed ${result.processed}; failed ${result.failed}; skipped ${result.skipped}.`);
+        fetchProspects();
+      }
     } catch (err: any) {
       alert(err.message || 'Batch processing failed');
     } finally {
@@ -728,6 +776,47 @@ export default function Outreach() {
           );
         })}
       </div>
+
+      {activeJob && (
+        <div className="glass-panel p-4 rounded-xl border border-primary/20 bg-primary/5">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              {activeJob.status === 'completed' ? (
+                <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+              ) : activeJob.status === 'failed' ? (
+                <X className="w-4 h-4 text-red-500" />
+              ) : (
+                <RefreshCw className="w-4 h-4 animate-spin text-primary" />
+              )}
+              <span className="text-xs font-bold tracking-wide">
+                Batch Job #{activeJob.id} — {activeJob.status.toUpperCase()}
+              </span>
+              <span className="text-xs text-muted-foreground">
+                {activeJob.processed}/{activeJob.total} processed{activeJob.failed ? `, ${activeJob.failed} failed` : ''}
+              </span>
+            </div>
+            {activeJob.status === 'completed' && (
+              <button onClick={() => setActiveJob(null)} className="text-xs text-muted-foreground hover:text-foreground">Dismiss</button>
+            )}
+          </div>
+          <div className="w-full bg-secondary rounded-full h-2 overflow-hidden">
+            <div
+              className="h-2 bg-primary transition-all duration-500"
+              style={{ width: `${activeJob.total ? Math.round((activeJob.processed / activeJob.total) * 100) : 0}%` }}
+            />
+          </div>
+          {activeJob.errors && Array.isArray(activeJob.errors) && activeJob.errors.length > 0 && activeJob.status === 'completed' && (
+            <details className="mt-3">
+              <summary className="text-xs text-muted-foreground cursor-pointer">Show details ({activeJob.errors.length} messages)</summary>
+              <ul className="mt-2 text-xs text-muted-foreground space-y-1 max-h-32 overflow-y-auto">
+                {activeJob.errors.slice(0, 10).map((err, i) => (
+                  <li key={i}>• {String(err)}</li>
+                ))}
+              </ul>
+            </details>
+          )}
+        </div>
+      )}
 
       <div className="glass-panel p-4 rounded-xl flex flex-col lg:flex-row gap-4 items-center justify-between">
         <form onSubmit={handleSearchSubmit} className="relative w-full lg:w-96">

@@ -15,7 +15,7 @@ from app.core.config import settings
 from app.models.user import User  # noqa: F401
 from app.models.crm import (  # noqa: F401
     Company, Contact, Lead, Deal, Activity, Task, Notification,
-    MeetingSummary, AuditLog,
+    MeetingSummary, AuditLog, Prospect, OutreachResult, OutreachFollowUp, OutreachSendLog, OutreachJob,
 )
 
 config = context.config
