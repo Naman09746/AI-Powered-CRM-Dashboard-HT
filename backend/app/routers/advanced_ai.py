@@ -55,21 +55,23 @@ def _parse_meeting_response(raw_text: str) -> dict:
 
     # Try to find sections by headers
     patterns = {
-        "summary": r'(?:summary|overview)[:\s]*\n?(.*?)(?=(?:decision|action|risk|$))',
-        "decisions": r'(?:decisions?\s*(?:made)?)[:\s]*\n?(.*?)(?=(?:action|risk|$))',
-        "action_items": r'(?:action\s*items?)[:\s]*\n?(.*?)(?=(?:risk|$))',
-        "risks": r'(?:risks?|obstacles?)[:\s]*\n?(.*?)$'
+        "summary": r'(?:^|\n)(?:summary|overview)[:\s]*\n?(.*?)(?=(?:\n(?:decisions?|action|risks?)|$))',
+        "decisions": r'(?:^|\n)(?:decisions?\s*(?:made)?)[:\s]*\n?(.*?)(?=(?:\n(?:summary|action|risks?)|$))',
+        "action_items": r'(?:^|\n)(?:action\s*items?)[:\s]*\n?(.*?)(?=(?:\n(?:summary|decisions?|risks?)|$))',
+        "risks": r'(?:^|\n)(?:risks?|obstacles?)[:\s]*\n?(.*?)$'
     }
 
-    text_lower = raw_text.lower()
-
     for key, pattern in patterns.items():
-        match = re.search(pattern, text_lower, re.DOTALL | re.IGNORECASE)
+        match = re.search(pattern, raw_text, re.DOTALL | re.IGNORECASE)
         if match:
-            # Extract from original text to preserve formatting
+            # Extract from original text preserving matching bounds
             start = match.start(1)
             end = match.end(1)
-            sections[key] = raw_text[start:end].strip()
+            val = raw_text[start:end].strip()
+            if val:
+                sections[key] = val
+
+
 
     # Fallback: split by double newlines if regex didn't work well
     if not any(sections.values()):

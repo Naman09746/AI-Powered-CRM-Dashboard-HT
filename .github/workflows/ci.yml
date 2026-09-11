@@ -22,9 +22,14 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r backend/requirements.txt
         
-    - name: Run syntax checks
+    - name: Run backend tests
+      env:
+        DATABASE_URL: "sqlite:///:memory:"
+        SECRET_KEY: "ci-secret-key-for-testing"
       run: |
-        python -m py_compile backend/app/main.py
+        cd backend
+        pytest tests -v
+
 
   frontend-build:
     runs-on: ubuntu-latest

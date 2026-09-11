@@ -8,6 +8,8 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from typing import Any, Dict
 
+from app.core.config import settings
+
 
 def build_email_preview(result: Any) -> Dict[str, Any]:
     prospect = result.prospect
@@ -46,9 +48,9 @@ def _html_body(preview: Dict[str, Any]) -> str:
 
 
 def _send_gmail(preview: Dict[str, Any]) -> str:
-    gmail_address = os.getenv("GMAIL_ADDRESS")
-    gmail_password = os.getenv("GMAIL_APP_PASSWORD")
-    sender_name = os.getenv("GMAIL_SENDER_NAME", "Hamari Technology")
+    gmail_address = settings.GMAIL_ADDRESS or os.getenv("GMAIL_ADDRESS")
+    gmail_password = settings.GMAIL_APP_PASSWORD or os.getenv("GMAIL_APP_PASSWORD")
+    sender_name = settings.GMAIL_SENDER_NAME or os.getenv("GMAIL_SENDER_NAME", "Hamari Technology")
     if not gmail_address or not gmail_password:
         raise RuntimeError("Gmail credentials are not configured")
     if not preview.get("to_email"):
@@ -68,9 +70,9 @@ def _send_gmail(preview: Dict[str, Any]) -> str:
 
 
 def _send_brevo(preview: Dict[str, Any]) -> str:
-    api_key = os.getenv("BREVO_API_KEY")
-    sender_email = os.getenv("BREVO_SENDER_EMAIL") or os.getenv("GMAIL_ADDRESS")
-    sender_name = os.getenv("BREVO_SENDER_NAME", os.getenv("GMAIL_SENDER_NAME", "Hamari Technology"))
+    api_key = settings.BREVO_API_KEY or os.getenv("BREVO_API_KEY")
+    sender_email = settings.BREVO_SENDER_EMAIL or os.getenv("BREVO_SENDER_EMAIL") or settings.GMAIL_ADDRESS or os.getenv("GMAIL_ADDRESS")
+    sender_name = settings.BREVO_SENDER_NAME or os.getenv("BREVO_SENDER_NAME", "Hamari Technology")
     if not api_key:
         raise RuntimeError("Brevo API key is not configured")
     if not sender_email:
@@ -108,9 +110,10 @@ def send_email(preview: Dict[str, Any], dry_run: bool = True) -> Dict[str, str]:
     if dry_run:
         return {"status": "dry_run", "provider": "dry_run"}
 
-    if os.getenv("BREVO_API_KEY"):
+    if settings.BREVO_API_KEY or os.getenv("BREVO_API_KEY"):
         provider = _send_brevo(preview)
         return {"status": "sent", "provider": provider}
 
     provider = _send_gmail(preview)
     return {"status": "sent", "provider": provider}
+

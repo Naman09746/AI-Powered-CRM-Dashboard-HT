@@ -9,6 +9,9 @@ try:
 except ImportError:
     genai = None  # Gemini features disabled; local fallback will be used
 
+from app.core.config import settings
+
+
 
 SERVICE_KEYWORDS = [
     (
@@ -76,14 +79,41 @@ def _valid_email(email: Optional[str]) -> bool:
 
 
 def _extract_json(raw_text: str) -> Optional[Dict[str, Any]]:
-    match = re.search(r"\{.*\}", raw_text, re.DOTALL)
-    if not match:
+    if not raw_text or not raw_text.strip():
         return None
+
+    cleaned = raw_text.strip()
+    # 1. Direct JSON parse
     try:
-        parsed = json.loads(match.group(0))
+        parsed = json.loads(cleaned)
+        if isinstance(parsed, dict):
+            return parsed
     except json.JSONDecodeError:
-        return None
-    return parsed if isinstance(parsed, dict) else None
+        pass
+
+    # 2. Extract from markdown code block ```json ... ```
+    md_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", cleaned, re.DOTALL)
+    if md_match:
+        try:
+            parsed = json.loads(md_match.group(1))
+            if isinstance(parsed, dict):
+                return parsed
+        except json.JSONDecodeError:
+            pass
+
+    # 3. Non-greedy outer curly brace scan
+    start = cleaned.find("{")
+    end = cleaned.rfind("}")
+    if start != -1 and end != -1 and end > start:
+        try:
+            parsed = json.loads(cleaned[start : end + 1])
+            if isinstance(parsed, dict):
+                return parsed
+        except json.JSONDecodeError:
+            pass
+
+    return None
+
 
 
 def _infer_company_size(employee_count: Optional[int]) -> str:
@@ -367,9 +397,23 @@ def _local_process(prospect: Any, error: Optional[str] = None) -> Dict[str, Any]
 
 
 def _gemini_process(prospect: Any) -> Optional[Dict[str, Any]]:
-    api_key = os.getenv("GEMINI_API_KEY")
+    api_key = settings.GEMINI_API_KEY or os.getenv("GEMINI_API_KEY")
     if not api_key or genai is None:
         return None
+
+    prospect_payload = {
+        "company_name": _clean(prospect.company_name),
+        "contact_name": _clean(prospect.contact_name),
+        "category": _clean(prospect.category),
+        "industry": _clean(prospect.industry),
+        "location": _clean(prospect.location),
+        "country": _clean(prospect.country),
+        "website": _clean(prospect.website),
+        "email": _clean(prospect.email),
+        "phone": _clean(prospect.phone),
+        "employee_count": prospect.employee_count if prospect.employee_count is not None else None,
+        "notes": _clean(prospect.notes),
+    }
 
     prompt = f"""You are an AI cold-outreach assistant for Hamari Technology, an IT services company in Delhi NCR.
 Use only the supplied prospect fields. Do not claim that you verified external facts.
@@ -385,23 +429,12 @@ Scoring rules: lead_score must be HOT, WARM, or COLD. score_value must be 0-100.
 Brand voice: professional, practical, concise, India-friendly where relevant. Sign off as Dharmendra Sharma, Hamari Technology.
 
 Prospect:
-{{
-  "company_name": "{_clean(prospect.company_name)}",
-  "contact_name": "{_clean(prospect.contact_name)}",
-  "category": "{_clean(prospect.category)}",
-  "industry": "{_clean(prospect.industry)}",
-  "location": "{_clean(prospect.location)}",
-  "country": "{_clean(prospect.country)}",
-  "website": "{_clean(prospect.website)}",
-  "email": "{_clean(prospect.email)}",
-  "phone": "{_clean(prospect.phone)}",
-  "employee_count": {prospect.employee_count if prospect.employee_count is not None else "null"},
-  "notes": "{_clean(prospect.notes)}"
-}}"""
+{json.dumps(prospect_payload, indent=2)}"""
 
     try:
         genai.configure(api_key=api_key)
-        model = genai.GenerativeModel("gemini-2.0-flash")
+        model_name = getattr(settings, "GEMINI_MODEL", "gemini-2.0-flash") or "gemini-2.0-flash"
+        model = genai.GenerativeModel(model_name)
         response = model.generate_content(prompt)
         parsed = _extract_json(response.text or "")
         if not parsed:
@@ -414,6 +447,7 @@ Prospect:
         return parsed
     except Exception as exc:
         return _local_process(prospect, error=f"Gemini fallback used: {str(exc)}")
+
 
 
 def process_prospect(prospect: Any) -> Dict[str, Any]:
