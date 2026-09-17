@@ -5,8 +5,6 @@ import {
   Users, 
   GitBranch, 
   LogOut, 
-  Sun, 
-  Moon, 
   User as UserIcon,
   Briefcase,
   CheckSquare,
@@ -24,6 +22,7 @@ import {
   Target
 } from 'lucide-react';
 import { useAuth } from '../App';
+import ThemeToggle from './ThemeToggle';
 
 interface NotificationItem {
   id: number;
@@ -40,7 +39,7 @@ interface ChatMessage {
 }
 
 export default function Layout({ children }: { children: React.ReactNode }) {
-  const { token, user, logout, theme, toggleTheme } = useAuth();
+  const { token, user, logout } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -309,13 +308,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
           {/* Action Buttons */}
           <div className="flex items-center justify-between px-2">
-            <button
-              onClick={toggleTheme}
-              className="p-2 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
-              title="Toggle Theme"
-            >
-              {theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
-            </button>
+            <ThemeToggle />
 
             <button
               onClick={handleLogout}
@@ -403,17 +396,17 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               )}
             </div>
 
+            {/* Theme Toggle in Header (Desktop & Mobile) */}
+            <ThemeToggle className="hidden sm:inline-flex" />
+
             {/* Small screen role tag */}
             <span className={`inline-block text-[10px] px-2 py-0.5 rounded-full font-semibold md:hidden ${getRoleColor(user?.role || '')}`}>
               {user?.role}
             </span>
             
-            <button
-              onClick={toggleTheme}
-              className="p-2 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors md:hidden"
-            >
-              {theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
-            </button>
+            <div className="sm:hidden">
+              <ThemeToggle />
+            </div>
             
             <button
               onClick={handleLogout}
